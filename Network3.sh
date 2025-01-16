@@ -3,6 +3,18 @@
 # Script save path
 SCRIPT_PATH="$HOME/Network3.sh"
 
+# Node version and download URL (configurable)
+NODE_VERSION="v2.1.0"
+NODE_URL="https://network3.io/ubuntu-node-${NODE_VERSION}.tar"
+
+# Log file for debugging
+LOG_FILE="$HOME/network3_script.log"
+
+# Function to log messages
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+}
+
 # Check if the script is run as root
 if [ "$(id -u)" != "0" ]; then
     echo "This script needs to be run with root privileges."
@@ -12,8 +24,8 @@ fi
 
 # Ensure screen is installed
 if ! command -v screen &> /dev/null; then
-    echo "screen is not installed, installing now..."
-    sudo apt-get install -y screen
+    log_message "screen is not installed, installing now..."
+    sudo apt-get install -y screen || { log_message "Failed to install screen."; exit 1; }
 fi
 
 # Main menu function
@@ -30,16 +42,21 @@ function main_menu() {
         echo "1) Install and start node"
         echo "2) Get private key"
         echo "3) Stop node"
-        echo "4) Exit"
-        echo -n "Choose an option [1-4]: "
-        read OPTION
+        echo "4) Check node status"
+        echo "5) Exit"
+        echo -n "Choose an option [1-5]: "
+        read -r OPTION
 
-        case $OPTION in
-        1) install_and_start_node ;;
-        2) get_private_key ;;
-        3) stop_node ;;
-        4) exit 0 ;;
-        *) echo "Invalid option, please try again." ;;
+        # Trim whitespace from input
+        OPTION=$(echo "$OPTION" | xargs)
+
+        case "$OPTION" in
+            1) install_and_start_node ;;
+            2) get_private_key ;;
+            3) stop_node ;;
+            4) check_node_status ;;
+            5) exit 0 ;;
+            *) echo "Invalid option, please try again." ;;
         esac
 
         echo "Press any key to return to the main menu..."
@@ -49,42 +66,47 @@ function main_menu() {
 
 # Function to install and start the node
 install_and_start_node() {
+    log_message "Starting node installation..."
+
     # Update the system package list
-    sudo apt update
+    sudo apt update || { log_message "Failed to update package list."; exit 1; }
 
     # Install required packages
-    sudo apt install -y wget curl make clang pkg-config libssl-dev build-essential jq lz4 gcc unzip snapd
-    sudo apt-get install -y net-tools
+    log_message "Installing required packages..."
+    sudo apt install -y wget curl make clang pkg-config libssl-dev build-essential jq lz4 gcc unzip snapd net-tools || {
+        log_message "Failed to install required packages."
+        exit 1
+    }
 
     # Download, extract, and clean up files
-    echo "Downloading and extracting the node package..."
-    wget https://network3.io/ubuntu-node-v2.1.0.tar
-    tar -xf ubuntu-node-v2.1.0.tar
-    rm -rf ubuntu-node-v2.1.0.tar
+    log_message "Downloading and extracting the node package..."
+    wget "$NODE_URL" -O "ubuntu-node-${NODE_VERSION}.tar" || { log_message "Failed to download node package."; exit 1; }
+    tar -xf "ubuntu-node-${NODE_VERSION}.tar" || { log_message "Failed to extract node package."; exit 1; }
+    rm -rf "ubuntu-node-${NODE_VERSION}.tar"
 
     # Check if the directory exists
     if [ ! -d "ubuntu-node" ]; then
-        echo "Directory ubuntu-node does not exist, please check if the download and extraction were successful."
+        log_message "Directory ubuntu-node does not exist, please check if the download and extraction were successful."
         exit 1
     fi
 
-    # Prompt and enter the directory
-    echo "Entering the ubuntu-node directory..."
-    cd ubuntu-node
+    # Enter the directory
+    log_message "Entering the ubuntu-node directory..."
+    cd ubuntu-node || { log_message "Failed to enter ubuntu-node directory."; exit 1; }
 
     # Check and create a screen session
     if screen -list | grep -q "network3"; then
-        echo "Detected an existing screen session named 'network3'."
+        log_message "Detected an existing screen session named 'network3'."
     else
-        echo "Creating a new screen session 'network3'..."
-        screen -S network3 -dm
+        log_message "Creating a new screen session 'network3'..."
+        screen -S network3 -dm || { log_message "Failed to create screen session."; exit 1; }
     fi
 
     # Start the node
-    echo "Starting the node..."
-    screen -S network3 -p 0 -X stuff 'sudo bash manager.sh up\n'
+    log_message "Starting the node..."
+    screen -S network3 -p 0 -X stuff 'sudo bash manager.sh up\n' || { log_message "Failed to start the node."; exit 1; }
 
-    echo "Script execution complete."
+    log_message "Node installation and startup complete."
     echo "Press any key to return to the main menu..."
     read -n 1
     main_menu
@@ -92,9 +114,9 @@ install_and_start_node() {
 
 # Function to get the private key
 get_private_key() {
-    echo "Getting the private key..."
-    cd ubuntu-node
-    sudo bash manager.sh key
+    log_message "Getting the private key..."
+    cd ubuntu-node || { log_message "Failed to enter ubuntu-node directory."; exit 1; }
+    sudo bash manager.sh key || { log_message "Failed to retrieve private key."; exit 1; }
     echo "Press any key to return to the main menu..."
     read -n 1
     main_menu
@@ -102,10 +124,23 @@ get_private_key() {
 
 # Function to stop the node
 stop_node() {
-    echo "Stopping the node..."
-    cd ubuntu-node
-    sudo bash manager.sh down
-    echo "Node has been stopped."
+    log_message "Stopping the node..."
+    cd ubuntu-node || { log_message "Failed to enter ubuntu-node directory."; exit 1; }
+    sudo bash manager.sh down || { log_message "Failed to stop the node."; exit 1; }
+    log_message "Node has been stopped."
+    echo "Press any key to return to the main menu..."
+    read -n 1
+    main_menu
+}
+
+# Function to check node status
+check_node_status() {
+    log_message "Checking node status..."
+    if screen -list | grep -q "network3"; then
+        echo "The node is running."
+    else
+        echo "The node is not running."
+    fi
     echo "Press any key to return to the main menu..."
     read -n 1
     main_menu
